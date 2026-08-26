@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -14,6 +15,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.demo.exceptions.DuplicateTaskException;
+import com.example.demo.exceptions.InvalidTaskException;
+import com.example.demo.exceptions.TaskNotFoundException;
 import com.example.demo.models.Status;
 import com.example.demo.models.Task;
 import com.example.demo.services.TaskService;
@@ -46,11 +50,14 @@ class TaskControllerTest {
 
     @Test
     void postCreatesTaskFromRequestBody() throws Exception {
+        given(taskService.createTask(any())).willAnswer(invocation -> invocation.getArgument(0));
+
         mockMvc.perform(post("/tasks")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"id\":1,\"title\":\"First\",\"description\":\"d\",\"status\":\"TODO\"}"))
-                .andExpect(status().isOk())
-                .andExpect(content().string("New Task created successfully"));
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.title").value("First"));
 
         ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
         verify(taskService).createTask(captor.capture());
@@ -62,9 +69,35 @@ class TaskControllerTest {
     }
 
     @Test
+    void postReturnsConflictForDuplicateId() throws Exception {
+        given(taskService.createTask(any())).willThrow(new DuplicateTaskException(1L));
+
+        mockMvc.perform(post("/tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"id\":1,\"title\":\"First\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value("Task with id 1 already exists"));
+    }
+
+    @Test
+    void postReturnsBadRequestForInvalidTask() throws Exception {
+        given(taskService.createTask(any())).willThrow(new InvalidTaskException("Task title is required"));
+
+        mockMvc.perform(post("/tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"id\":1}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("Task title is required"));
+    }
+
+    @Test
     void postRejectsMissingBody() throws Exception {
         mockMvc.perform(post("/tasks").contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Request body is missing or malformed"));
+        verify(taskService, never()).createTask(any());
     }
 
     @Test
@@ -80,17 +113,20 @@ class TaskControllerTest {
     }
 
     @Test
-    void getByIdReturnsEmptyBodyForUnknownTask() throws Exception {
-        given(taskService.getTask(404L)).willReturn(null);
+    void getByIdReturnsNotFoundForUnknownTask() throws Exception {
+        given(taskService.getTask(404L)).willThrow(new TaskNotFoundException(404L));
 
         mockMvc.perform(get("/tasks/404"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(""));
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message").value("Task with id 404 was not found"));
     }
 
     @Test
     void getByIdRejectsNonNumericId() throws Exception {
-        mockMvc.perform(get("/tasks/abc")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/tasks/abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Invalid value for parameter 'id'"));
     }
 
     @Test
@@ -115,16 +151,30 @@ class TaskControllerTest {
 
     @Test
     void putUpdatesTaskUsingPathId() throws Exception {
+        given(taskService.updateTask(eq(9L), any())).willAnswer(invocation -> invocation.getArgument(1));
+
         mockMvc.perform(put("/tasks/9")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"id\":9,\"title\":\"Updated\",\"status\":\"COMPLETED\"}"))
                 .andExpect(status().isOk())
-                .andExpect(content().string("Existing Task updated successfully"));
+                .andExpect(jsonPath("$.title").value("Updated"))
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
 
         ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
         verify(taskService).updateTask(eq(9L), captor.capture());
         assertThat(captor.getValue().getTitle()).isEqualTo("Updated");
         assertThat(captor.getValue().getStatus()).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void putReturnsNotFoundForUnknownTask() throws Exception {
+        given(taskService.updateTask(eq(9L), any())).willThrow(new TaskNotFoundException(9L));
+
+        mockMvc.perform(put("/tasks/9")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"Updated\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Task with id 9 was not found"));
     }
 
     @Test
@@ -136,11 +186,28 @@ class TaskControllerTest {
 
     @Test
     void deleteRemovesTask() throws Exception {
-        mockMvc.perform(delete("/tasks/3"))
-                .andExpect(status().isOk())
-                .andExpect(content().string("Task deleted successfully"));
+        mockMvc.perform(delete("/tasks/3")).andExpect(status().isNoContent());
 
         verify(taskService).deleteTask(3L);
+    }
+
+    @Test
+    void deleteReturnsNotFoundForUnknownTask() throws Exception {
+        willThrow(new TaskNotFoundException(3L)).given(taskService).deleteTask(3L);
+
+        mockMvc.perform(delete("/tasks/3"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Task with id 3 was not found"));
+    }
+
+    @Test
+    void unexpectedServiceFailureIsReportedAsServerError() throws Exception {
+        given(taskService.getAllTasks()).willThrow(new IllegalStateException("boom"));
+
+        mockMvc.perform(get("/tasks"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.status").value(500))
+                .andExpect(jsonPath("$.message").value("An unexpected error occurred"));
     }
 
     @Test
