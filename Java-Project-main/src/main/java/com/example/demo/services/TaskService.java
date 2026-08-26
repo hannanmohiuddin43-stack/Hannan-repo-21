@@ -1,19 +1,26 @@
 package com.example.demo.services;
+
 import com.example.demo.common.InMemoryStore;
 import com.example.demo.models.Task;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
+
 @Service
 public class TaskService {
 
     private final InMemoryStore<Long, Task> tasks = new InMemoryStore<>();
+    private final AtomicLong idSequence = new AtomicLong(1);
 
-    public void createTask(Task task) {
+    public Task createTask(Task task) {
+        task.setId(idSequence.getAndIncrement());
         tasks.save(task.getId(), task);
+        return task;
     }
 
-    public Task getTask(Long id) {
+    public Optional<Task> getTask(Long id) {
         return tasks.find(id);
     }
 
@@ -21,11 +28,12 @@ public class TaskService {
         return tasks.findAll();
     }
 
-    public void updateTask(Long id, Task task) {
-        tasks.save(id, task);
+    public Optional<Task> updateTask(Long id, Task task) {
+        task.setId(id);
+        return tasks.replaceIfPresent(id, task);
     }
 
-    public void deleteTask(Long id) {
-        tasks.delete(id);
+    public boolean deleteTask(Long id) {
+        return tasks.delete(id);
     }
 }
