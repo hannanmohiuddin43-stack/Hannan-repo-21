@@ -235,6 +235,25 @@ class TaskControllerTest {
 
     @Test
     void unknownMethodOnCollectionIsRejected() throws Exception {
-        mockMvc.perform(delete("/tasks")).andExpect(status().isMethodNotAllowed());
+        mockMvc.perform(delete("/tasks"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    void nonNumericIdIsRejected() throws Exception {
+        mockMvc.perform(get("/tasks/abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid value for parameter 'id'"));
+        verify(taskService, never()).getTask(any());
+    }
+
+    @Test
+    void unexpectedServiceFailureIsReportedAsServerError() throws Exception {
+        given(taskService.getAllTasks()).willThrow(new IllegalStateException("boom"));
+
+        mockMvc.perform(get("/tasks"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("Internal server error"));
     }
 }
