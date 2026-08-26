@@ -1,9 +1,13 @@
 package com.example.demo.controller;
+
 import com.example.demo.models.Task;
 import com.example.demo.services.TaskService;
-import org.springframework.beans.factory.annotation.Autowired;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import java.net.URI;
 import java.util.List;
 
 @RestController
@@ -12,41 +16,43 @@ public class TaskController {
 
     private final TaskService taskService;
 
-    @Autowired
     public TaskController(TaskService taskService) {
         this.taskService = taskService;
     }
 
-    //Creates a new taaask
     @PostMapping
-    public String createTask(@RequestBody Task task) {
-        taskService.createTask(task);
-        return "New Task created successfully";
+    public ResponseEntity<Task> createTask(@Valid @RequestBody Task task) {
+        Task createdTask = taskService.createTask(task);
+        URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+                .path("/{id}")
+                .buildAndExpand(createdTask.getId())
+                .toUri();
+        return ResponseEntity.created(location).body(createdTask);
     }
 
-    // used to Get a task by ID
     @GetMapping("/{id}")
-    public Task getTask(@PathVariable Long id) {
-        return taskService.getTask(id);
+    public ResponseEntity<Task> getTask(@PathVariable Long id) {
+        return taskService.getTask(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    // Gets all tasks
     @GetMapping
     public List<Task> getAllTasks() {
         return taskService.getAllTasks();
     }
 
-    // Update a task
     @PutMapping("/{id}")
-    public String updateTask(@PathVariable Long id, @RequestBody Task task) {
-        taskService.updateTask(id, task);
-        return "Existing Task updated successfully";
+    public ResponseEntity<Task> updateTask(@PathVariable Long id, @Valid @RequestBody Task task) {
+        return taskService.updateTask(id, task)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    //deletes a task
     @DeleteMapping("/{id}")
-    public String deleteTask(@PathVariable Long id) {
-        taskService.deleteTask(id);
-        return "Task deleted successfully";
+    public ResponseEntity<Void> deleteTask(@PathVariable Long id) {
+        return taskService.deleteTask(id)
+                ? ResponseEntity.noContent().build()
+                : ResponseEntity.notFound().build();
     }
 }

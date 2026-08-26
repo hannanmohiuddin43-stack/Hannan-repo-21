@@ -11,22 +11,27 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.demo.models.Status;
 import com.example.demo.models.Task;
 import com.example.demo.services.TaskService;
+import com.example.demo.web.ApiExceptionHandler;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(TaskController.class)
+@Import(ApiExceptionHandler.class)
 class TaskControllerTest {
 
     @Autowired
@@ -40,36 +45,95 @@ class TaskControllerTest {
         task.setId(id);
         task.setTitle(title);
         task.setDescription(title + " description");
-        task.setStatus(Status.TODO.name());
+        task.setStatus(Status.TODO);
         return task;
     }
 
     @Test
     void postCreatesTaskFromRequestBody() throws Exception {
+        Task created = task(7L, "First");
+        given(taskService.createTask(any(Task.class))).willReturn(created);
+
         mockMvc.perform(post("/tasks")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"id\":1,\"title\":\"First\",\"description\":\"d\",\"status\":\"TODO\"}"))
-                .andExpect(status().isOk())
-                .andExpect(content().string("New Task created successfully"));
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", org.hamcrest.Matchers.endsWith("/tasks/7")))
+                .andExpect(jsonPath("$.id").value(7))
+                .andExpect(jsonPath("$.title").value("First"))
+                .andExpect(jsonPath("$.description").value("First description"))
+                .andExpect(jsonPath("$.status").value("TODO"));
 
         ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
         verify(taskService).createTask(captor.capture());
-        Task created = captor.getValue();
-        assertThat(created.getId()).isEqualTo(1L);
-        assertThat(created.getTitle()).isEqualTo("First");
-        assertThat(created.getDescription()).isEqualTo("d");
-        assertThat(created.getStatus()).isEqualTo("TODO");
+        Task request = captor.getValue();
+        assertThat(request.getId()).isNull();
+        assertThat(request.getTitle()).isEqualTo("First");
+        assertThat(request.getDescription()).isEqualTo("d");
+        assertThat(request.getStatus()).isEqualTo(Status.TODO);
     }
 
     @Test
     void postRejectsMissingBody() throws Exception {
         mockMvc.perform(post("/tasks").contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest());
+        verify(taskService, never()).createTask(any());
+    }
+
+    @Test
+    void postRejectsMalformedBody() throws Exception {
+        mockMvc.perform(post("/tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":"))
+                .andExpect(status().isBadRequest());
+        verify(taskService, never()).createTask(any());
+    }
+
+    @Test
+    void postRejectsBlankTitle() throws Exception {
+        mockMvc.perform(post("/tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\" \",\"status\":\"TODO\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("must not be blank"));
+        verify(taskService, never()).createTask(any());
+    }
+
+    @Test
+    void postRejectsMissingTitle() throws Exception {
+        mockMvc.perform(post("/tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"TODO\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("must not be blank"));
+        verify(taskService, never()).createTask(any());
+    }
+
+    @Test
+    void postRejectsOverlongTitle() throws Exception {
+        String title = "a".repeat(201);
+
+        mockMvc.perform(post("/tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"" + title + "\",\"status\":\"TODO\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("size must be between 0 and 200"));
+        verify(taskService, never()).createTask(any());
+    }
+
+    @Test
+    void postRejectsUnknownStatus() throws Exception {
+        mockMvc.perform(post("/tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"First\",\"status\":\"UNKNOWN\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid request body"));
+        verify(taskService, never()).createTask(any());
     }
 
     @Test
     void getByIdReturnsTaskAsJson() throws Exception {
-        given(taskService.getTask(1L)).willReturn(task(1L, "First"));
+        given(taskService.getTask(1L)).willReturn(Optional.of(task(1L, "First")));
 
         mockMvc.perform(get("/tasks/1"))
                 .andExpect(status().isOk())
@@ -80,12 +144,11 @@ class TaskControllerTest {
     }
 
     @Test
-    void getByIdReturnsEmptyBodyForUnknownTask() throws Exception {
-        given(taskService.getTask(404L)).willReturn(null);
+    void getByIdReturnsNotFoundForUnknownTask() throws Exception {
+        given(taskService.getTask(404L)).willReturn(Optional.empty());
 
         mockMvc.perform(get("/tasks/404"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(""));
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -115,16 +178,33 @@ class TaskControllerTest {
 
     @Test
     void putUpdatesTaskUsingPathId() throws Exception {
+        Task updated = task(9L, "Updated");
+        updated.setStatus(Status.COMPLETED);
+        given(taskService.updateTask(eq(9L), any(Task.class))).willReturn(Optional.of(updated));
+
         mockMvc.perform(put("/tasks/9")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"id\":9,\"title\":\"Updated\",\"status\":\"COMPLETED\"}"))
+                        .content("{\"id\":99,\"title\":\"Updated\",\"status\":\"COMPLETED\"}"))
                 .andExpect(status().isOk())
-                .andExpect(content().string("Existing Task updated successfully"));
+                .andExpect(jsonPath("$.id").value(9))
+                .andExpect(jsonPath("$.title").value("Updated"))
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
 
         ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
         verify(taskService).updateTask(eq(9L), captor.capture());
         assertThat(captor.getValue().getTitle()).isEqualTo("Updated");
-        assertThat(captor.getValue().getStatus()).isEqualTo("COMPLETED");
+        assertThat(captor.getValue().getStatus()).isEqualTo(Status.COMPLETED);
+        assertThat(captor.getValue().getId()).isNull();
+    }
+
+    @Test
+    void putReturnsNotFoundForUnknownTask() throws Exception {
+        given(taskService.updateTask(eq(404L), any(Task.class))).willReturn(Optional.empty());
+
+        mockMvc.perform(put("/tasks/404")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"Updated\",\"status\":\"TODO\"}"))
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -136,11 +216,21 @@ class TaskControllerTest {
 
     @Test
     void deleteRemovesTask() throws Exception {
+        given(taskService.deleteTask(3L)).willReturn(true);
+
         mockMvc.perform(delete("/tasks/3"))
-                .andExpect(status().isOk())
-                .andExpect(content().string("Task deleted successfully"));
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
 
         verify(taskService).deleteTask(3L);
+    }
+
+    @Test
+    void deleteReturnsNotFoundForUnknownTask() throws Exception {
+        given(taskService.deleteTask(404L)).willReturn(false);
+
+        mockMvc.perform(delete("/tasks/404"))
+                .andExpect(status().isNotFound());
     }
 
     @Test

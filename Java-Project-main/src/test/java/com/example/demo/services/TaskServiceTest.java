@@ -21,43 +21,49 @@ class TaskServiceTest {
         task.setId(id);
         task.setTitle(title);
         task.setDescription(title + " description");
-        task.setStatus(Status.TODO.name());
+        task.setStatus(Status.TODO);
         return task;
     }
 
     @Test
     void createdTaskCanBeRetrievedById() {
-        Task task = task(1L, "First");
+        Task task = task(99L, "First");
 
-        taskService.createTask(task);
+        Task created = taskService.createTask(task);
 
-        assertThat(taskService.getTask(1L)).isSameAs(task);
+        assertThat(created).isSameAs(task);
+        assertThat(created.getId()).isEqualTo(1L);
+        assertThat(taskService.getTask(1L)).containsSame(task);
     }
 
     @Test
-    void creatingTaskWithExistingIdReplacesIt() {
-        taskService.createTask(task(1L, "First"));
-        Task replacement = task(1L, "Replacement");
+    void creatingTasksWithSameCallerIdGetsDistinctGeneratedIds() {
+        Task first = task(42L, "First");
+        Task second = task(42L, "Second");
 
-        taskService.createTask(replacement);
+        Task createdFirst = taskService.createTask(first);
+        Task createdSecond = taskService.createTask(second);
 
-        assertThat(taskService.getTask(1L)).isSameAs(replacement);
-        assertThat(taskService.getAllTasks()).hasSize(1);
+        assertThat(createdFirst.getId()).isEqualTo(1L);
+        assertThat(createdSecond.getId()).isEqualTo(2L);
+        assertThat(createdFirst.getId()).isNotEqualTo(createdSecond.getId());
+        assertThat(taskService.getAllTasks()).hasSize(2);
     }
 
     @Test
-    void createdTaskIsKeyedByItsOwnId() {
+    void createTaskIgnoresCallerSuppliedId() {
         Task task = task(42L, "Keyed");
 
-        taskService.createTask(task);
+        Task created = taskService.createTask(task);
 
-        assertThat(taskService.getTask(99L)).isNull();
-        assertThat(taskService.getTask(42L)).isSameAs(task);
+        assertThat(created.getId()).isEqualTo(1L);
+        assertThat(taskService.getTask(42L)).isEmpty();
+        assertThat(taskService.getTask(1L)).containsSame(task);
     }
 
     @Test
-    void getTaskReturnsNullForUnknownId() {
-        assertThat(taskService.getTask(404L)).isNull();
+    void getTaskReturnsEmptyForUnknownId() {
+        assertThat(taskService.getTask(404L)).isEmpty();
     }
 
     @Test
@@ -88,40 +94,44 @@ class TaskServiceTest {
     void updateTaskReplacesStoredTaskUnderRequestedId() {
         taskService.createTask(task(1L, "Original"));
         Task updated = task(1L, "Updated");
-        updated.setStatus(Status.COMPLETED.name());
+        updated.setStatus(Status.COMPLETED);
 
-        taskService.updateTask(1L, updated);
+        assertThat(taskService.updateTask(1L, updated)).containsSame(updated);
 
-        assertThat(taskService.getTask(1L)).isSameAs(updated);
-        assertThat(taskService.getTask(1L).getStatus()).isEqualTo("COMPLETED");
+        assertThat(taskService.getTask(1L)).containsSame(updated);
+        assertThat(taskService.getTask(1L)).hasValueSatisfying(task ->
+                assertThat(task.getStatus()).isEqualTo(Status.COMPLETED));
     }
 
     @Test
-    void updateTaskCreatesEntryForUnknownId() {
+    void updateTaskDoesNotCreateEntryForUnknownId() {
         Task task = task(5L, "Created by update");
 
-        taskService.updateTask(5L, task);
+        assertThat(taskService.updateTask(5L, task)).isEmpty();
 
-        assertThat(taskService.getTask(5L)).isSameAs(task);
+        assertThat(taskService.getTask(5L)).isEmpty();
+        assertThat(taskService.getAllTasks()).isEmpty();
     }
 
     @Test
     void updateTaskUsesPathIdRatherThanBodyId() {
+        Task existing = task(99L, "Original");
+        taskService.createTask(existing);
         Task body = task(2L, "Body id differs");
 
-        taskService.updateTask(1L, body);
+        assertThat(taskService.updateTask(1L, body)).containsSame(body);
 
-        assertThat(taskService.getTask(1L)).isSameAs(body);
-        assertThat(taskService.getTask(2L)).isNull();
+        assertThat(taskService.getTask(1L)).containsSame(body);
+        assertThat(taskService.getTask(2L)).isEmpty();
     }
 
     @Test
     void deleteTaskRemovesStoredTask() {
         taskService.createTask(task(1L, "First"));
 
-        taskService.deleteTask(1L);
+        assertThat(taskService.deleteTask(1L)).isTrue();
 
-        assertThat(taskService.getTask(1L)).isNull();
+        assertThat(taskService.getTask(1L)).isEmpty();
         assertThat(taskService.getAllTasks()).isEmpty();
     }
 
@@ -130,7 +140,7 @@ class TaskServiceTest {
         Task task = task(1L, "First");
         taskService.createTask(task);
 
-        taskService.deleteTask(2L);
+        assertThat(taskService.deleteTask(2L)).isFalse();
 
         assertThat(taskService.getAllTasks()).containsExactly(task);
     }
