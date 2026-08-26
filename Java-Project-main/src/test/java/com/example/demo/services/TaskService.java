@@ -1,30 +1,31 @@
 package com.example.demo.services;
+import com.example.demo.common.InMemoryStore;
 import com.example.demo.models.Task;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
+import java.util.List;
 @Service
 public class TaskService {
 
-    private final Map<Long, Task> taskMap = new HashMap<>();
+    private final InMemoryStore<Long, Task> tasks = new InMemoryStore<>();
 
     public void createTask(Task task) {
-        taskMap.put(task.getId(), task);
+        tasks.save(task.getId(), task);
     }
 
     public Task getTask(Long id) {
-        return taskMap.get(id);
+        return tasks.find(id);
     }
 
     public List<Task> getAllTasks() {
-        return new ArrayList<>(taskMap.values());
+        return tasks.findAll();
     }
 
     public void updateTask(Long id, Task task) {
-        taskMap.put(id, task);
+        tasks.save(id, task);
     }
 
     public void deleteTask(Long id) {
-        taskMap.remove(id);
+        tasks.delete(id);
     }
 }
