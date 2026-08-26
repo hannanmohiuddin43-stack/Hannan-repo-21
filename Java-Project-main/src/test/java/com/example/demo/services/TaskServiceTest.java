@@ -1,11 +1,7 @@
 package com.example.demo.services;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.example.demo.exceptions.DuplicateTaskException;
-import com.example.demo.exceptions.InvalidTaskException;
-import com.example.demo.exceptions.TaskNotFoundException;
 import com.example.demo.models.Status;
 import com.example.demo.models.Task;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,70 +21,49 @@ class TaskServiceTest {
         task.setId(id);
         task.setTitle(title);
         task.setDescription(title + " description");
-        task.setStatus(Status.TODO.name());
+        task.setStatus(Status.TODO);
         return task;
     }
 
     @Test
     void createdTaskCanBeRetrievedById() {
-        Task task = task(1L, "First");
+        Task task = task(99L, "First");
 
-        taskService.createTask(task);
+        Task created = taskService.createTask(task);
 
-        assertThat(taskService.getTask(1L)).isSameAs(task);
+        assertThat(created).isSameAs(task);
+        assertThat(created.getId()).isEqualTo(1L);
+        assertThat(taskService.getTask(1L)).containsSame(task);
     }
 
     @Test
-    void creatingTaskWithExistingIdIsRejected() {
-        Task original = task(1L, "First");
-        taskService.createTask(original);
+    void creatingTasksWithSameCallerIdGetsDistinctGeneratedIds() {
+        Task first = task(42L, "First");
+        Task second = task(42L, "Second");
 
-        assertThatThrownBy(() -> taskService.createTask(task(1L, "Replacement")))
-                .isInstanceOf(DuplicateTaskException.class);
-        assertThat(taskService.getTask(1L)).isSameAs(original);
-        assertThat(taskService.getAllTasks()).hasSize(1);
+        Task createdFirst = taskService.createTask(first);
+        Task createdSecond = taskService.createTask(second);
+
+        assertThat(createdFirst.getId()).isEqualTo(1L);
+        assertThat(createdSecond.getId()).isEqualTo(2L);
+        assertThat(createdFirst.getId()).isNotEqualTo(createdSecond.getId());
+        assertThat(taskService.getAllTasks()).hasSize(2);
     }
 
     @Test
-    void creatingTaskWithoutIdIsRejected() {
-        assertThatThrownBy(() -> taskService.createTask(task(null, "No id")))
-                .isInstanceOf(InvalidTaskException.class);
-        assertThat(taskService.getAllTasks()).isEmpty();
-    }
-
-    @Test
-    void creatingTaskWithoutTitleIsRejected() {
-        assertThatThrownBy(() -> taskService.createTask(task(1L, "  ")))
-                .isInstanceOf(InvalidTaskException.class);
-        assertThat(taskService.getAllTasks()).isEmpty();
-    }
-
-    @Test
-    void creatingTaskWithUnknownStatusIsRejected() {
-        Task task = task(1L, "First");
-        task.setStatus("DONE");
-
-        assertThatThrownBy(() -> taskService.createTask(task))
-                .isInstanceOf(InvalidTaskException.class)
-                .hasMessageContaining("DONE");
-        assertThat(taskService.getAllTasks()).isEmpty();
-    }
-
-    @Test
-    void createdTaskIsKeyedByItsOwnId() {
+    void createTaskIgnoresCallerSuppliedId() {
         Task task = task(42L, "Keyed");
 
-        taskService.createTask(task);
+        Task created = taskService.createTask(task);
 
-        assertThatThrownBy(() -> taskService.getTask(99L)).isInstanceOf(TaskNotFoundException.class);
-        assertThat(taskService.getTask(42L)).isSameAs(task);
+        assertThat(created.getId()).isEqualTo(1L);
+        assertThat(taskService.getTask(42L)).isEmpty();
+        assertThat(taskService.getTask(1L)).containsSame(task);
     }
 
     @Test
-    void getTaskThrowsForUnknownId() {
-        assertThatThrownBy(() -> taskService.getTask(404L))
-                .isInstanceOf(TaskNotFoundException.class)
-                .hasMessageContaining("404");
+    void getTaskReturnsEmptyForUnknownId() {
+        assertThat(taskService.getTask(404L)).isEmpty();
     }
 
     @Test
@@ -119,49 +94,54 @@ class TaskServiceTest {
     void updateTaskReplacesStoredTaskUnderRequestedId() {
         taskService.createTask(task(1L, "Original"));
         Task updated = task(1L, "Updated");
-        updated.setStatus(Status.COMPLETED.name());
+        updated.setStatus(Status.COMPLETED);
 
-        taskService.updateTask(1L, updated);
+        assertThat(taskService.updateTask(1L, updated)).containsSame(updated);
 
-        assertThat(taskService.getTask(1L)).isSameAs(updated);
-        assertThat(taskService.getTask(1L).getStatus()).isEqualTo("COMPLETED");
+        assertThat(taskService.getTask(1L)).containsSame(updated);
+        assertThat(taskService.getTask(1L)).hasValueSatisfying(task ->
+                assertThat(task.getStatus()).isEqualTo(Status.COMPLETED));
     }
 
     @Test
-    void updateTaskThrowsForUnknownId() {
-        assertThatThrownBy(() -> taskService.updateTask(5L, task(5L, "Created by update")))
-                .isInstanceOf(TaskNotFoundException.class);
+    void updateTaskDoesNotCreateEntryForUnknownId() {
+        Task task = task(5L, "Created by update");
+
+        assertThat(taskService.updateTask(5L, task)).isEmpty();
+
+        assertThat(taskService.getTask(5L)).isEmpty();
         assertThat(taskService.getAllTasks()).isEmpty();
     }
 
     @Test
     void updateTaskUsesPathIdRatherThanBodyId() {
-        taskService.createTask(task(1L, "Original"));
+        Task existing = task(99L, "Original");
+        taskService.createTask(existing);
         Task body = task(2L, "Body id differs");
 
-        taskService.updateTask(1L, body);
+        assertThat(taskService.updateTask(1L, body)).containsSame(body);
 
-        assertThat(taskService.getTask(1L)).isSameAs(body);
-        assertThat(body.getId()).isEqualTo(1L);
-        assertThatThrownBy(() -> taskService.getTask(2L)).isInstanceOf(TaskNotFoundException.class);
+        assertThat(taskService.getTask(1L)).containsSame(body);
+        assertThat(taskService.getTask(2L)).isEmpty();
     }
 
     @Test
     void deleteTaskRemovesStoredTask() {
         taskService.createTask(task(1L, "First"));
 
-        taskService.deleteTask(1L);
+        assertThat(taskService.deleteTask(1L)).isTrue();
 
-        assertThatThrownBy(() -> taskService.getTask(1L)).isInstanceOf(TaskNotFoundException.class);
+        assertThat(taskService.getTask(1L)).isEmpty();
         assertThat(taskService.getAllTasks()).isEmpty();
     }
 
     @Test
-    void deleteTaskThrowsForUnknownId() {
+    void deleteTaskIsNoOpForUnknownId() {
         Task task = task(1L, "First");
         taskService.createTask(task);
 
-        assertThatThrownBy(() -> taskService.deleteTask(2L)).isInstanceOf(TaskNotFoundException.class);
+        assertThat(taskService.deleteTask(2L)).isFalse();
+
         assertThat(taskService.getAllTasks()).containsExactly(task);
     }
 }

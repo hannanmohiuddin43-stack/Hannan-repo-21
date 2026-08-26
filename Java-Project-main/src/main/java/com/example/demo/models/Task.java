@@ -1,10 +1,23 @@
 package com.example.demo.models;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
 public class Task {
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Long id;
+
+    @NotBlank
+    @Size(max = 200)
     private String title;
+
+    @Size(max = 2000)
     private String description;
-    private String status;
+
+    @NotNull
+    private Status status;
 
     public Long getId() {
         return id;
@@ -30,11 +43,11 @@ public class Task {
         this.description = description;
     }
 
-    public String getStatus() {
+    public Status getStatus() {
         return status;
     }
 
-    public void setStatus(String status) {
+    public void setStatus(Status status) {
         this.status = status;
     }
 
@@ -44,7 +57,7 @@ public class Task {
                 "id=" + id +
                 ", title='" + title + '\'' +
                 ", description='" + description + '\'' +
-                ", status='" + status + '\'' +
+                ", status=" + status +
                 '}';
     }
 }

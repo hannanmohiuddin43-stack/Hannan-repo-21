@@ -23,12 +23,12 @@ class TaskTest {
         task.setId(7L);
         task.setTitle("Write tests");
         task.setDescription("Cover the task API");
-        task.setStatus(Status.IN_PROGRESS.name());
+        task.setStatus(Status.IN_PROGRESS);
 
         assertThat(task.getId()).isEqualTo(7L);
         assertThat(task.getTitle()).isEqualTo("Write tests");
         assertThat(task.getDescription()).isEqualTo("Cover the task API");
-        assertThat(task.getStatus()).isEqualTo("IN_PROGRESS");
+        assertThat(task.getStatus()).isEqualTo(Status.IN_PROGRESS);
     }
 
     @Test
@@ -37,15 +37,15 @@ class TaskTest {
         task.setId(1L);
         task.setTitle("Title");
         task.setDescription("Description");
-        task.setStatus("TODO");
+        task.setStatus(Status.TODO);
 
         assertThat(task.toString())
-                .isEqualTo("Task{id=1, title='Title', description='Description', status='TODO'}");
+                .isEqualTo("Task{id=1, title='Title', description='Description', status=TODO}");
     }
 
     @Test
     void toStringHandlesUnsetFields() {
         assertThat(new Task().toString())
-                .isEqualTo("Task{id=null, title='null', description='null', status='null'}");
+                .isEqualTo("Task{id=null, title='null', description='null', status=null}");
     }
 }
