@@ -2,6 +2,8 @@ package com.example.demo.controller;
 import com.example.demo.models.Task;
 import com.example.demo.services.TaskService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -19,9 +21,8 @@ public class TaskController {
 
     //Creates a new taaask
     @PostMapping
-    public String createTask(@RequestBody Task task) {
-        taskService.createTask(task);
-        return "New Task created successfully";
+    public ResponseEntity<Task> createTask(@RequestBody Task task) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(taskService.createTask(task));
     }
 
     // used to Get a task by ID
@@ -38,15 +39,14 @@ public class TaskController {
 
     // Update a task
     @PutMapping("/{id}")
-    public String updateTask(@PathVariable Long id, @RequestBody Task task) {
-        taskService.updateTask(id, task);
-        return "Existing Task updated successfully";
+    public Task updateTask(@PathVariable Long id, @RequestBody Task task) {
+        return taskService.updateTask(id, task);
     }
 
     //deletes a task
     @DeleteMapping("/{id}")
-    public String deleteTask(@PathVariable Long id) {
+    public ResponseEntity<Void> deleteTask(@PathVariable Long id) {
         taskService.deleteTask(id);
-        return "Task deleted successfully";
+        return ResponseEntity.noContent().build();
     }
 }
